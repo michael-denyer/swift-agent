@@ -2,8 +2,10 @@
 """Ask a local model through splash, starting the server when nothing is serving."""
 
 import argparse
+import base64
 import fcntl
 import json
+import mimetypes
 import os
 import shutil
 import signal
@@ -21,7 +23,7 @@ BASE_URL = f"http://127.0.0.1:{PORT}"
 PIDFILE = SWIFT_HOME / "server.pid"
 LOCKFILE = SWIFT_HOME / "start.lock"
 LOGFILE = SWIFT_HOME / "logs/server.log"
-SERVE_ARGS = ["--language-only", "--no-webui"]
+SERVE_ARGS = ["--no-webui"]
 # The first start may download the model, about 7.3 GB for the default, so the
 # health wait is long. Later starts load from the Hugging Face cache.
 HEALTH_TIMEOUT = 1800.0
@@ -159,9 +161,26 @@ def ensure_running():
     return wait_for_health(alive, HEALTH_TIMEOUT)
 
 
-def ask(model, prompt, system, effort, max_tokens):
+def image_part(path):
+    """Return an OpenAI image_url content part holding the file as a data URL."""
+    mime, _ = mimetypes.guess_type(path)
+    if not mime or not mime.startswith("image/"):
+        raise SystemExit(f"swift-ask: {path} is not an image file this launcher recognises")
+    try:
+        data = Path(path).read_bytes()
+    except OSError as error:
+        raise SystemExit(f"swift-ask: cannot read {path}: {error}") from error
+    url = f"data:{mime};base64,{base64.b64encode(data).decode()}"
+    return {"type": "image_url", "image_url": {"url": url}}
+
+
+def ask(model, prompt, system, effort, max_tokens, image_parts=()):
     messages = [{"role": "system", "content": system}] if system else []
-    messages.append({"role": "user", "content": prompt})
+    if image_parts:
+        content = [*image_parts, {"type": "text", "text": prompt}]
+    else:
+        content = prompt
+    messages.append({"role": "user", "content": content})
     body = json.dumps(
         {
             "model": model,
@@ -233,10 +252,11 @@ def ask_once_restarting(prompt, args):
     An HTTP status is not retried: that is the request's own fault.
     """
     effort = "none" if args.no_think else args.effort
+    image_parts = [image_part(path) for path in args.image]
     for attempt in (1, 2):
         model = ensure_running()
         try:
-            return ask(model, prompt, args.system, effort, args.max_tokens)
+            return ask(model, prompt, args.system, effort, args.max_tokens, image_parts)
         except (OSError, ValueError) as error:
             if attempt == 2:
                 die(f"the completion request failed: {error}")
@@ -253,6 +273,13 @@ def main():
     parser.add_argument("--effort", choices=EFFORTS, default="medium")
     parser.add_argument("--max-tokens", type=int, default=4096)
     parser.add_argument("--system")
+    parser.add_argument(
+        "--image",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="attach an image file; repeat for several",
+    )
     parser.add_argument("--status", action="store_true")
     parser.add_argument("--stop", action="store_true")
     args = parser.parse_args()
