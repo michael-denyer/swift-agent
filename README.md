@@ -36,17 +36,25 @@ The subagent relays the task to `swift-ask` and returns the local model's answer
 | down | alive | Wait. Another caller is starting it. |
 | down | dead or missing | Remove the stale pidfile, start the server, wait. |
 
-An exclusive lock on the start path means concurrent callers produce one server. The launcher starts `splash serve --model "$SWIFT_MODEL" --port "$SWIFT_PORT" --language-only --no-webui` detached, using the defaults below when the variables are unset. Its pidfile identity check requires a `splash serve` command line that names the model. If the server dies while starting, `swift-ask` exits nonzero and prints the tail of the server log.
+An exclusive lock on the start path means concurrent callers produce one server. The launcher starts `splash serve --model "$SWIFT_MODEL" --port "$SWIFT_PORT" --no-webui` detached, using the defaults below when the variables are unset. Its pidfile identity check requires a `splash serve` command line that names the model. If the server dies while starting, `swift-ask` exits nonzero and prints the tail of the server log.
 
 ## Usage
 
 ```text
-swift-ask [--no-think] [--effort {max,xhigh,high,medium,low,minimal}] [--max-tokens N] [--system TEXT] [PROMPT]
+swift-ask [--no-think] [--effort {max,xhigh,high,medium,low,minimal}] [--max-tokens N] [--system TEXT] [--image PATH ...] [PROMPT]
 swift-ask --status
 swift-ask --stop
 ```
 
 The prompt comes from stdin when no positional argument is given. Only the answer goes to stdout; timing and errors go to stderr. The model's thinking is dropped from the output. The default effort is `medium`, and the default token budget is 4096, including thinking.
+
+`--image PATH` attaches an image file to the prompt, and it can be repeated. `swift-ask` reads each file before it starts the server and stops with an error when a file is missing or its extension is not an image type. splash loads the model's vision projector at start: Bonsai 2.5 and Swift 1.5 both have one. With the projector, an idle Bonsai 2.5 server allocated about 11.7 GB, against 10.3 GB without it.
+
+```bash
+swift-ask --no-think --image invoice.png "What is the invoice number and the total due?"
+```
+
+A server started with `--language-only`, as earlier versions of this launcher did, answers image requests with `HTTP 400: image input is not supported: this model is serving without vision`. Run `swift-ask --stop` once, and the next request starts a server with vision.
 
 | Variable | Default | Purpose |
 |---|---|---|
@@ -153,4 +161,4 @@ The Swift 1.5 launcher configuration was preserved: `Q4_K_M`, `--language-only -
 
 ## Limits
 
-Text only. The local model has no tools, file access, or memory of earlier calls. Include file contents, constraints, and the expected output format in each task. Allow extra time for the first download and cold starts.
+Text and images only. The local model has no tools, file access, or memory of earlier calls. Include file contents, constraints, and the expected output format in each task. Allow extra time for the first download and cold starts.
