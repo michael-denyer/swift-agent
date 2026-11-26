@@ -1,10 +1,10 @@
 # Swift Agent
 
-A Claude Code subagent that runs ukisai models locally on Apple Silicon. The `swift` agent uses [splash](https://github.com/incoai/splash), with [Swift 1.5](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27B-GGUF) as its default model. It can also select other compatible ukisai models, including [Swift Bonsai 2](https://huggingface.co/ukisai/Swift-Bonsai-2-GGUF). The server starts itself on the first request.
+A Claude Code subagent that runs local models on Apple Silicon. The `swift` agent uses [splash](https://github.com/incoai/splash), with PrismML's [Ternary Bonsai 2.5 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2.5-27B-GGUF) as its default model. It can also select other compatible models, including ukisai's [Swift 1.5](https://huggingface.co/ukisai/Swift-1.5-Qwen3.8-27B-GGUF) and [Swift Bonsai 2](https://huggingface.co/ukisai/Swift-Bonsai-2-GGUF). The server starts itself on the first request.
 
 ## Quick start
 
-Requires Python 3 and splash. [splash requires an M3 or newer Mac with macOS 26.4 or later](https://github.com/incoai/splash#quick-start). The default Swift model downloads about 17.4 GB on its first request; Swift Bonsai 2 downloads about 7.2 GB.
+Requires Python 3 and splash. [splash requires an M3 or newer Mac with macOS 26.4 or later](https://github.com/incoai/splash#quick-start). The default model downloads about 7.3 GB on its first request; Swift 1.5 downloads about 17.4 GB.
 
 ```bash
 brew install python incoai/tap/splash
@@ -24,7 +24,7 @@ In Claude Code, ask for the `swift` agent by name, or say "use the local model".
 
 ![Claude Code's main session calls the swift subagent, which runs swift-ask. swift-ask checks GET /ready on 127.0.0.1:8000 and starts splash serve if it is down. splash runs Swift 1.5 Q4_K_M GGUF on Apple Silicon.](assets/swift-architecture.png)
 
-The graphic shows the default Swift 1.5 setup. `SWIFT_MODEL` changes the model served by splash.
+The graphic shows Swift 1.5; the flow is the same for every model. `SWIFT_MODEL` changes the model served by splash.
 
 The subagent relays the task to `swift-ask` and returns the local model's answer. The model sees only the prompt it receives, so the subagent includes the context it needs.
 
@@ -51,7 +51,7 @@ The prompt comes from stdin when no positional argument is given. Only the answe
 | Variable | Default | Purpose |
 |---|---|---|
 | `SWIFT_HOME` | `~/.local/share/swift` | Logs, pidfile, start lock. |
-| `SWIFT_MODEL` | `ukisai/Swift-1.5-Qwen3.8-27B-GGUF:Q4_K_M` | The model splash serves, as `splash serve --model` takes it. |
+| `SWIFT_MODEL` | `prism-ml/Ternary-Bonsai-2.5-27B-GGUF:PQ2_0` | The model splash serves, as `splash serve --model` takes it. |
 | `SWIFT_PORT` | `8000` | Server port on `127.0.0.1`, splash's default. |
 
 The launcher checks `GET /ready`, reads the model id from `GET /v1/models`, and sends requests to `POST /v1/chat/completions` without streaming.
@@ -60,8 +60,26 @@ The launcher checks `GET /ready`, reads the model id from `GET /v1/models`, and 
 
 | Model | Agent and launcher | Selection |
 |---|---|---|
-| Swift 1.5 | `swift` / `swift-ask` | Default: `ukisai/Swift-1.5-Qwen3.8-27B-GGUF:Q4_K_M`. |
+| Ternary Bonsai 2.5 27B | `swift` / `swift-ask` | Default: `prism-ml/Ternary-Bonsai-2.5-27B-GGUF:PQ2_0`. |
+| Swift 1.5 | `swift` / `swift-ask` | Set `SWIFT_MODEL=ukisai/Swift-1.5-Qwen3.8-27B-GGUF:Q4_K_M`. |
 | Swift Bonsai 2 | `swift` / `swift-ask` | Set `SWIFT_MODEL=ukisai/Swift-Bonsai-2-GGUF:PQ2_0`. |
+
+### Ternary Bonsai 2.5 27B
+
+[Ternary Bonsai 2.5 27B](https://huggingface.co/prism-ml/Ternary-Bonsai-2.5-27B-GGUF) is PrismML's ternary build of Qwen3.8-27B. On splash 1.7.3, use its `PQ2_0` GGUF (7.3 GB), which splash serves with the `incoai/Qwen3.8-27B-DFlash2` draft it selects on its own. splash refuses the repository's `Q2_0` file at load, has no `PTQ1_0` support, and runs the `PQ2_0-mtp` file no faster than `PQ2_0`.
+
+Measured with splash 1.7.3 on an M5 Pro (20 GPU cores, 64 GB) on 2026-11-26, against Swift 1.5 `Q4_K_M` on the same Mac, at temperature 0 and with thinking off unless stated:
+
+| | Bonsai 2.5 `PQ2_0` | Swift 1.5 `Q4_K_M` |
+|---|---:|---:|
+| HumanEval pass@1, 164 problems | 157 | 154–156 |
+| GSM8K, 200 sampled problems | 190–193 | 192–193 |
+| Single-request decode, fresh server | 64–145 tok/s | 45–87 tok/s |
+| 4-request combined decode, fresh server | 168 tok/s | 114 tok/s |
+| Cold prefill, 8.7K and 35K tokens | 455–523 tok/s | 600–693 tok/s |
+| Engine memory, idle after load | 10–12 GB | 20–22 GB |
+
+Bonsai 2.5 prefills more slowly because splash's Neural Engine FFN split requires unrotated quantized projections, so its prefill runs on the GPU alone. With `--disable-ane`, Swift 1.5 prefilled at 432–533 tok/s, level with Bonsai 2.5. Decode rates vary with content: code ran fastest and prose slowest for both models.
 
 ### Swift Bonsai 2
 
@@ -102,9 +120,9 @@ That variant needs more disk and memory than the default. Use a distinct `SWIFT_
 
 ## Model and performance
 
-The default Swift 1.5 model uses ukisai's GGUF release because splash 1.3.1 stopped loading Splash packages ([incoai/splash#335](https://github.com/incoai/splash/pull/335)). The MLX release `ukisai/Swift-1.5-4bit-MLX` returned mixed-script output on splash 1.3.1, with or without `--disable-ane`, measured on an M5 Pro on 2026-10-13. This repository uses the GGUF release. Its weights are under the swift-open-license-1.0 carried by the model repository.
+Swift 1.5 uses ukisai's GGUF release because splash 1.3.1 stopped loading Splash packages ([incoai/splash#335](https://github.com/incoai/splash/pull/335)). The MLX release `ukisai/Swift-1.5-4bit-MLX` returned mixed-script output on splash 1.3.1, with or without `--disable-ane`, measured on an M5 Pro on 2026-10-13. This repository uses the GGUF release. Its weights are under the swift-open-license-1.0 carried by the model repository.
 
-The first start downloads the 17.4 GB GGUF into the Hugging Face Hub cache, so the ready wait is 30 minutes. Cached startup time varies with loading and Neural Engine calibration. An earlier cold Swift 1.5 call with cached weights answered in 23 seconds on an M5 Pro on 2026-10-13. splash releases the weights after 10 idle minutes and reloads them on the next request.
+The first start downloads the selected GGUF into the Hugging Face Hub cache, 7.3 GB for the default and 17.4 GB for Swift 1.5, so the ready wait is 30 minutes. Cached startup time varies with loading and Neural Engine calibration. With cached weights, Bonsai 2.5 reached Ready in 8 to 17 seconds and Swift 1.5 in 11 to 13 seconds on an M5 Pro on 2026-11-26. splash releases the weights after 10 idle minutes and reloads them on the next request.
 
 ### Inference and switching validation
 
@@ -124,7 +142,7 @@ swift-ask --no-think --max-tokens 256 \
 
 The token cap intentionally truncates the prose for comparable output lengths. These measurements describe this short-prompt workload, not model quality or long-context performance. An earlier 98-token Swift 1.5 answer reached about 58 tok/s on a different prompt; that one-off result is not a directly comparable baseline.
 
-The Swift 1.5 launcher configuration was preserved: `Q4_K_M`, `--language-only --no-webui`, and the existing splash Neural Engine calibration (FFN share 0.38 for chunks of at least 520 rows). The launcher's defaults remain `medium` effort and 4096 tokens; the benchmark overrides apply only to its requests. Swift Bonsai 2 used the GPU FFN path because splash's Neural Engine split requires unrotated quantized projections. The test ended with the default Swift 1.5 model running again.
+The Swift 1.5 launcher configuration was preserved: `Q4_K_M`, `--language-only --no-webui`, and the existing splash Neural Engine calibration (FFN share 0.38 for chunks of at least 520 rows). The launcher's defaults remain `medium` effort and 4096 tokens; the benchmark overrides apply only to its requests. Swift Bonsai 2 used the GPU FFN path because splash's Neural Engine split requires unrotated quantized projections. The test ended with Swift 1.5 running again.
 
 ## Structure
 

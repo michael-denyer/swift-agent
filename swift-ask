@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Ask the local Swift 1.5 model through splash, starting the server when nothing is serving."""
+"""Ask a local model through splash, starting the server when nothing is serving."""
 
 import argparse
 import fcntl
@@ -15,14 +15,14 @@ import urllib.request
 from pathlib import Path
 
 SWIFT_HOME = Path(os.environ.get("SWIFT_HOME") or Path.home() / ".local/share/swift")
-MODEL = os.environ.get("SWIFT_MODEL") or "ukisai/Swift-1.5-Qwen3.8-27B-GGUF:Q4_K_M"
+MODEL = os.environ.get("SWIFT_MODEL") or "prism-ml/Ternary-Bonsai-2.5-27B-GGUF:PQ2_0"
 PORT = int(os.environ.get("SWIFT_PORT") or 8000)
 BASE_URL = f"http://127.0.0.1:{PORT}"
 PIDFILE = SWIFT_HOME / "server.pid"
 LOCKFILE = SWIFT_HOME / "start.lock"
 LOGFILE = SWIFT_HOME / "logs/server.log"
 SERVE_ARGS = ["--language-only", "--no-webui"]
-# The first start may download the model, about 17 GB for the default, so the
+# The first start may download the model, about 7.3 GB for the default, so the
 # health wait is long. Later starts load from the Hugging Face cache.
 HEALTH_TIMEOUT = 1800.0
 REQUEST_TIMEOUT = 1800.0

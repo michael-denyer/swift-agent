@@ -1,5 +1,5 @@
 #!/bin/sh
-# Install Swift Agent's launcher and Claude Code subagent for ukisai models on splash.
+# Install Swift Agent's launcher and Claude Code subagent for local models on splash.
 # Safe to re-run: the links are updated in place.
 set -eu
 
